@@ -27,10 +27,10 @@ handle_call({set_loglevel, NewLevel}, SD) ->
 handle_call(get_loglevel, #state{level = Lvl} = SD) ->
   {ok, Lvl, SD}.
 
-handle_event({log, {_, _, _, Level, {Date, Time}, _, Message}}, #state{level = L} = State) ->
+handle_event({log, {_, _, Pid, Level, {Date, Time}, _, Message}}, #state{level = L} = State) ->
   LV = lager_util:level_to_num(Level),
   case LV =< L of
-    true -> {ok, do_log(LV, Date, Time, Message, State)};
+    true -> {ok, do_log(Pid, LV, Date, Time, Message, State)};
     false -> {ok, State}
   end;
 
@@ -58,23 +58,28 @@ config_val(C, Params, Default) ->
   end.
 
 %% The meat of the backend.  Uses couchbeam and is pretty simple
-do_log(Level, Date, Time, Message, #state{url = Url} = SD) ->
-  JsonMsg = to_json(Level, Date, Time, Message),
+do_log(Pid, Level, Date, Time, Message, #state{url = Url} = SD) ->
+  JsonMsg = to_json(Pid, Level, Date, Time, Message),
   httpc:request(post, {Url, [], "application/json", JsonMsg}, [], []),
   SD.
 
 make_url(Host, Port, DbName) ->
   lists:flatten(io_lib:format("http://~s:~B/~s", [Host, Port, DbName])).
 
-to_json(Level, Date, Time, Message) ->
+to_json([{pid, Pid} | _], Level, Date, Time, Message) ->
   FString = "{\"node\":\"~s\",
+             \"pid\":\"~s\",
              \"message\":\"~s\",
              \"date\":\"~s\",
              \"time\":\"~s\",
              \"level\":\"~s\"}",
   Node = node_string(),
   LevelStr = make_level_str(Level),
-  lists:flatten(io_lib:format(FString, [Node, Message, Date, Time, LevelStr])).
+  lists:flatten(io_lib:format(FString, [Node, pid_to_list(Pid), Message, Date, Time, LevelStr]));
+
+to_json(_, Level, Date, Time, Message) ->
+  to_json([{pid, self()}], Level, Date, Time, Message).
+
 
 node_string() ->
   erlang:atom_to_list(node()).
